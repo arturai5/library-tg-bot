@@ -1,0 +1,10 @@
+config.py
+
+*.db
+library.db
+
+temp_pdf/
+covers/
+
+__pycache__/
+.DS_Store
