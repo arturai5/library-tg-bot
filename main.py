@@ -5,28 +5,14 @@ from send_func import *
 from interf_func import *
 from cover_book import *
 from config import telegram_api_url, DB_NAME
+from database import *
+
+
+
 
 app = FastAPI()
 user_states = {}
 
-def init_db():
-    conn = sqlite3.connect(DB_NAME)
-    cursor = conn.cursor()
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS categories ( 
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    name TEXT NOT NULL UNIQUE )''')
-
-    cursor.execute('''CREATE TABLE IF NOT EXISTS books (
-    id INTEGER PRIMARY KEY AUTOINCREMENT,
-    title TEXT NOT NULL,
-    author TEXT NOT NULL,
-    category_id INTEGER,
-    telegram_file_id TEXT,
-    UNIQUE(title, author),
-    FOREIGN KEY (category_id) REFERENCES categories (id))''')
-    conn.commit()
-    conn.close()
 init_db()
 
 
@@ -40,13 +26,7 @@ def receive_update(data: dict):
             parts = callback_data.split('_')
             book_id = int(parts[1])
             category_id = int(parts[2])
-
-            conn = sqlite3.connect(DB_NAME)
-            cursor = conn.cursor()
-            cursor.execute('''UPDATE books SET category_id = ? WHERE id = ?''', (category_id, book_id))
-            conn.commit()
-            conn.close()
-
+            update_book_category(category_id, book_id)
             url = f'{telegram_api_url}/editMessageText'
             payload = {'chat_id': chat_id, 'message_id': message_id, 'text': "Раздел успешно назначен"}
             requests.post(url, json = payload)
@@ -68,13 +48,9 @@ def receive_update(data: dict):
         elif callback_data.startswith('selcat_'):
             category_id = int(callback_data.split('_')[1])
             url = f'{telegram_api_url}/editMessageText'
-            conn = sqlite3.connect(DB_NAME)
-            cursor = conn.cursor()
-            cursor.execute('''SELECT id, title, author, telegram_file_id FROM books WHERE category_id = ?''', (category_id,))
-            books = cursor.fetchall()
-            cursor.execute('''SELECT name FROM categories WHERE id = ?''', (category_id, ))
-            category_name = cursor.fetchone()[0]
-            conn.close()
+            res_tup = get_books_in_category_and_name(category_id)
+            books = res_tup[1]
+            category_name = res_tup[0]
             if books:
                 reply_text = f'Книги в разделе: {category_name}\n\n'
                 for index, book in enumerate(books, start = 1):
@@ -103,20 +79,16 @@ def receive_update(data: dict):
             send_message(chat_id,
                          '\nФайл загружен, напиши автора в форме: Иванов А. А.; и напиши название (двумя разными сообщениями), если его нет то оставь "-"\n\n')
         elif callback_data == 'ai_confirm':
+            if chat_id not in user_states or user_states[chat_id].get('action') != 'waiting_for_ai_confirmation':
+                send_message(chat_id, 'Эта кнопка устарела, пожалуйста, загрузи книгу заново.')
+                return {'status': 'ok'}
             author = user_states[chat_id]['author']
             title = user_states[chat_id]['title']
             file_id = user_states[chat_id]['file_id']
-            try:
-                conn = sqlite3.connect(DB_NAME)
-                cursor = conn.cursor()
-                cursor.execute('''INSERT INTO books (author, title, telegram_file_id) VALUES (?, ?, ?)''', (author, title, file_id, ))
-                book_id = cursor.lastrowid
-                cursor.execute('''SELECT id, name FROM categories''')
-                categories = cursor.fetchall()
-
-                conn.commit()
-                conn.close()
-
+            tup_add_book = add_book(author, title, file_id)
+            book_id = tup_add_book[0]
+            categories = get_all_categories()
+            if tup_add_book[1]:
                 inline_keyboard = []
                 for cat in categories:
                     button = [{'text': cat[1], 'callback_data': f"setcat_{book_id}_{cat[0]}"}]
@@ -126,7 +98,7 @@ def receive_update(data: dict):
                 send_message(chat_id, f"Книга {title} успешно сохранена, выбери раздел: ",
                              reply_markup)
 
-            except sqlite3.IntegrityError:
+            else:
                 send_message(chat_id, f"Книга {title} уже есть в библиотеке")
         return {'status': 'ok'}
 
@@ -188,23 +160,14 @@ def receive_update(data: dict):
             if user_states[chat_id].get('action') == 'waiting_for_new_category':
                 new_category_name = text.strip()
                 book_id = user_states[chat_id]['book_id']
-
-                conn = sqlite3.connect(DB_NAME)
-                cursor = conn.cursor()
-
-                try:
-                    cursor.execute('''INSERT INTO categories (name) VALUES (?)''', (new_category_name,))
-                    new_cat_id = cursor.lastrowid
-                    cursor.execute('''UPDATE books SET category_id = ? WHERE id = ?''', (new_cat_id, book_id,))
-                    conn.commit()
+                tup_add_category = add_category(new_category_name)
+                new_cat_id = tup_add_category[0]
+                if tup_add_category[1]:
+                    update_book_category(new_cat_id, book_id)
                     send_message(chat_id, f'Создан новый раздел: {new_category_name} и книга добавлена в него.')
-                except sqlite3.IntegrityError:
-                    cursor.execute('''SELECT id FROM categories WHERE name = ?''', (new_category_name,))
-                    exist_cat_id = cursor.fetchone()[0]
-                    cursor.execute('''UPDATE books SET category_id = ? WHERE id = ?''', (exist_cat_id, book_id,))
-                    conn.commit()
+                else:
+                    update_book_category(new_cat_id, book_id)
                     send_message(chat_id, f'Раздел {new_category_name} уже существует, книга добавлена в него.')
-                conn.close()
                 del user_states[chat_id]
                 return {'status': 'ok'}
 
@@ -217,19 +180,12 @@ def receive_update(data: dict):
 
             if user_states[chat_id].get('action') == 'waiting_for_title':
                 title_name = text.strip()
-                send_message(chat_id, 'Название записано.\n\n')
-                try:
-                    conn = sqlite3.connect(DB_NAME)
-                    cursor = conn.cursor()
-                    cursor.execute('''INSERT INTO books (title, author, telegram_file_id) VALUES (?, ?, ?)''',
-                                   (title_name, user_states[chat_id]['author'], user_states[chat_id]['file_id']))
-                    book_id = cursor.lastrowid
-                    cursor.execute('''SELECT id, name FROM categories''')
-                    categories = cursor.fetchall()
-
-                    conn.commit()
-                    conn.close()
-
+                author = user_states[chat_id]['author']
+                file_id = user_states[chat_id]['file_id']
+                tup_add_book = add_book(author, title_name, file_id)
+                if tup_add_book[1]:
+                    book_id = tup_add_book[0]
+                    categories = get_all_categories()
                     inline_keyboard = []
                     for cat in categories:
                         button = [{'text': cat[1], 'callback_data': f"setcat_{book_id}_{cat[0]}"}]
@@ -238,7 +194,7 @@ def receive_update(data: dict):
                     reply_markup = {"inline_keyboard": inline_keyboard}
                     send_message(chat_id, f"Книга {title_name} успешно сохранена, выбери раздел: ",
                                  reply_markup)
-                except sqlite3.IntegrityError:
+                else:
                     send_message(chat_id, f"Книга {title_name} уже есть в библиотеке")
                 del user_states[chat_id]
                 return {'status': 'ok'}
@@ -247,12 +203,7 @@ def receive_update(data: dict):
                 url = f'{telegram_api_url}/editMessageText'
                 search_text = data['message']['text'].strip()
                 pattern = f'%{search_text}%'
-                conn = sqlite3.connect(DB_NAME)
-                cursor = conn.cursor()
-                cursor.execute('''SELECT id, title, author, telegram_file_id FROM books
-                WHERE title LIKE ? OR author LIKE ?''', (pattern, pattern,))
-                books = cursor.fetchall()
-                conn.close()
+                books = search_book(pattern)
                 reply_text = 'Найденные книги: \n\n'
                 if books:
                     for index, book in enumerate(books, start=1):
@@ -294,11 +245,7 @@ def receive_update(data: dict):
             book_id_str = text[5:]
             if book_id_str.isdigit():
                 book_id = int(book_id_str)
-                conn = sqlite3.connect(DB_NAME)
-                cursor = conn.cursor()
-                cursor.execute('''SELECT telegram_file_id, title FROM books WHERE id = ?''', (book_id,))
-                book_data = cursor.fetchone()
-                conn.close()
+                book_data = get_book_for_download(book_id)
                 if book_data and book_data[0]:
                     file_id = book_data[0]
                     book_title = book_data[1]
