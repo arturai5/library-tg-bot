@@ -155,6 +155,8 @@ def receive_update(data: dict):
                     send_message(chat_id,
                                  '\nФайл загружен, напиши автора в форме: Иванов А. А.; и напиши название (двумя разными сообщениями), если его нет то оставь "-"\n\n')
                     return {'status': 'ok'}
+            else:
+                send_message(chat_id, 'У вас нет прав добавлять книги!\n')
         text = data['message'].get('text', '')
         if not text:
             send_message(chat_id, 'Пожалуйста воспользуйтесь меню ниже, или напишите /start')
