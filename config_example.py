@@ -10,3 +10,5 @@ API_KEY = "ТВОЙ_КЛЮЧ_GEMINI_ЗДЕСЬ"
 
 # Название файла базы данных SQLite
 DB_NAME = "library.db"
+
+ADMIN_ID = "ТВОЙ_TG_ID"

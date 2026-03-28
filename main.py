@@ -4,7 +4,7 @@ import sqlite3
 from send_func import *
 from interf_func import *
 from cover_book import *
-from config import telegram_api_url, DB_NAME
+from config import telegram_api_url, DB_NAME, ADMIN_ID
 from database import *
 
 
@@ -107,53 +107,57 @@ def receive_update(data: dict):
         chat_id = data['message']['chat']['id']
 
         if 'document' in data['message']:
-            file_id = data['message']['document']['file_id']
-            file_size = data['message']['document'].get('file_size', 0)
-            if file_size < 20*1024*1024:
-                try:
-                    send_message(chat_id, 'Сканирую обложку...\n\n')
-                    save_path = download_pdf(file_id)
-                    pages_path = extract_cover_images(save_path)
-                    book_data = analyze_covers_with_ai(pages_path)
-                    title = book_data['title']
-                    author = book_data['author']
-                    user_states[chat_id] = {'action': 'waiting_for_ai_confirmation',
-                                            'file_id': file_id,
-                                            'title': title,
-                                            'author': author}
-                    inline_keyboard = [[{'text': '✅ Верно, выбрать раздел',
-                                        'callback_data': 'ai_confirm'}], [{'text': '❌ Ошибка, введу сам',
-                                                                         'callback_data': 'ai_reject'}]]
-                    reply_markup = {'inline_keyboard': inline_keyboard}
-                    send_message(chat_id, f'Мы распознали обложку: Автор: {author}, Название: {title}; Все верно? \n\n',
-                                 reply_markup)
-                    os.remove(save_path)
+            id = data['message']['from']['id']
+            if id in ADMIN_ID:
+                file_id = data['message']['document']['file_id']
+                file_size = data['message']['document'].get('file_size', 0)
+                if file_size < 20 * 1024 * 1024:
+                    try:
+                        send_message(chat_id, 'Сканирую обложку...\n\n')
+                        save_path = download_pdf(file_id)
+                        pages_path = extract_cover_images(save_path)
+                        book_data = analyze_covers_with_ai(pages_path)
+                        title = book_data['title']
+                        author = book_data['author']
+                        user_states[chat_id] = {'action': 'waiting_for_ai_confirmation',
+                                                'file_id': file_id,
+                                                'title': title,
+                                                'author': author}
+                        inline_keyboard = [[{'text': '✅ Верно, выбрать раздел',
+                                             'callback_data': 'ai_confirm'}], [{'text': '❌ Ошибка, введу сам',
+                                                                                'callback_data': 'ai_reject'}]]
+                        reply_markup = {'inline_keyboard': inline_keyboard}
+                        send_message(chat_id,
+                                     f'Мы распознали обложку: Автор: {author}, Название: {title}; Все верно? \n\n',
+                                     reply_markup)
+                        os.remove(save_path)
 
-                    return {'status': 'ok'}
-                except Exception as e:
-                    send_message(chat_id, 'ИИ не справился с распознанием обложки, введи автора вручную.\n\n')
+                        return {'status': 'ok'}
+                    except Exception as e:
+                        send_message(chat_id, 'ИИ не справился с распознанием обложки, введи автора вручную.\n\n')
+                        user_states[chat_id] = {
+                            'action': 'waiting_for_author',
+                            'file_id': file_id,
+                            'author': None
+                        }
+                        print(f'Ошибка: {e}\n\n')
+                        send_message(chat_id,
+                                     '\nФайл загружен, напиши автора в форме: Иванов А. А.; и напиши название (двумя разными сообщениями), если его нет то оставь "-"\n\n')
+                        return {'status': 'ok'}
+                else:
+                    send_message(chat_id,
+                                 'Размер файла слишком большой для анализа обложки, введи название и автора вручную. \n\n')
                     user_states[chat_id] = {
                         'action': 'waiting_for_author',
                         'file_id': file_id,
                         'author': None
                     }
-                    print(f'Ошибка: {e}\n\n')
                     send_message(chat_id,
                                  '\nФайл загружен, напиши автора в форме: Иванов А. А.; и напиши название (двумя разными сообщениями), если его нет то оставь "-"\n\n')
                     return {'status': 'ok'}
-            else:
-                send_message(chat_id, 'Размер файла слишком большой для анализа обложки, введи название и автора вручную. \n\n')
-                user_states[chat_id] = {
-                    'action': 'waiting_for_author',
-                    'file_id': file_id,
-                    'author': None
-                }
-                send_message(chat_id,
-                             '\nФайл загружен, напиши автора в форме: Иванов А. А.; и напиши название (двумя разными сообщениями), если его нет то оставь "-"\n\n')
-                return {'status': 'ok'}
-
         text = data['message'].get('text', '')
         if not text:
+            send_message(chat_id, 'Пожалуйста воспользуйтесь меню ниже, или напишите /start')
             return {'status': 'ok'}
 
         if chat_id in user_states:
@@ -239,6 +243,11 @@ def receive_update(data: dict):
         elif text == '🔎 Поиск':
             user_states[chat_id] = {'action': 'waiting_for_search_query'}
             send_message(chat_id, 'Введи название книги или фамилию автора: \n\n')
+            return {'status': 'ok'}
+
+        elif text == 'ℹ️ О библиотеке':
+            send_message(chat_id, 'Тут хранятся различные книги, ассортимент постоянно пополняется, вы можете'
+                                  'загрузить любую книгу на выбор себе в формате pdf. Напишите /start, приятного пользования:)\n')
             return {'status': 'ok'}
 
         elif text.startswith('/get_'):
