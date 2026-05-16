@@ -20,14 +20,32 @@ def extract_cover_images(pdf_path):
     doc.close()
     return saved_files
 
-def analyze_covers_with_ai(image_paths):
+def analyze_covers_with_ai(image_paths, existing_categories = ""):
     prompt_contents = []
     for path in image_paths:
         prompt_contents.append(Image.open(path))
-    prompt_contents.append('Ты библиотекарь. Посмотри на эти страницы, найди титульный лист и верни точное название книги и автора. Ответь СТРОГО в формате JSON: {"title": "Название", "author": "Автор"}. Никакого лишнего текста.')
+    prompt = f"""
+        Проанализируй эти страницы книги (обложку и первые страницы). 
+        Вытащи название книги и автора.
+
+        Также определи категорию книги. Вот список уже существующих категорий в нашей библиотеке:
+        {existing_categories}
+
+        Если книга подходит под одну из них, напиши её название ТОЧНО как в списке. 
+        Если ни одна не подходит, придумай новую короткую и понятную категорию (1-2 слова, например: "Программирование", "Фантастика", "Медицина").
+
+        Верни ответ СТРОГО в формате JSON:
+        {{
+            "title": "Название книги",
+            "author": "Имя Автора",
+            "category": "Название Категории"
+        }}
+        Если автора нет, напиши "-".
+        """
+    prompt_contents.append(prompt)
     client = genai.Client(api_key=API_KEY)
     response = client.models.generate_content(
-        model = 'gemma-3-27b-it',
+        model = 'gemma-4-31b-it',
         contents = prompt_contents
     )
     print(response.text)

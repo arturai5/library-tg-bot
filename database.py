@@ -60,19 +60,23 @@ def add_book(author, title, file_id):
         conn.close()
 
 def add_category(new_category_name):
-    conn = sqlite3.connect(DB_NAME)
+    conn = sqlite3.connect('library.db')
     cursor = conn.cursor()
-    try:
-        cursor.execute('''INSERT INTO categories (name) VALUES (?)''', (new_category_name,))
-        new_cat_id = cursor.lastrowid
-        conn.commit()
-        return new_cat_id, True
-    except sqlite3.IntegrityError:
-        cursor.execute('''SELECT id FROM categories WHERE name = ?''', (new_category_name,))
-        exist_cat_id = cursor.lastrowid
-        return exist_cat_id, False
-    finally:
+    new_category_name_low = new_category_name.strip().capitalize()
+    if new_category_name_low == 'It':
+        new_category_name_low = 'IT'
+    cursor.execute('''SELECT id FROM categories WHERE name = ?''', (new_category_name_low,))
+    result_id = cursor.fetchone()
+    if result_id:
+        category_id = result_id[0]
         conn.close()
+        return category_id, False
+    else:
+        cursor.execute('''INSERT INTO categories (name) VALUES (?)''', (new_category_name_low,))
+        category_id = cursor.lastrowid
+        conn.commit()
+        conn.close()
+        return category_id, True
 
 def search_book(pattern):
     conn = sqlite3.connect(DB_NAME)
@@ -90,5 +94,34 @@ def get_book_for_download(book_id):
     book_data = cursor.fetchone()
     conn.close()
     return book_data
+
+def count_books():
+    conn = sqlite3.connect('library.db')
+    cursor = conn.cursor()
+    cursor.execute('''SELECT COUNT(*) FROM books''')
+    total = cursor.fetchone()[0]
+    conn.close()
+    return total
+
+def count_books_in_category(category_id):
+    conn = sqlite3.connect('library.db')
+    cursor = conn.cursor()
+    cursor.execute('''SELECT COUNT(*) FROM books WHERE category_id = ?''', (category_id,))
+    count = int(cursor.fetchone()[0])
+    conn.close()
+    return count
+
+def get_books_in_category_and_name_limit(category_id, limit, offset):
+    conn = sqlite3.connect(DB_NAME)
+    cursor = conn.cursor()
+    cursor.execute('''SELECT id, title, author, telegram_file_id FROM books WHERE category_id = ?
+    LIMIT ? OFFSET ?''', (category_id, limit, offset))
+    books = cursor.fetchall()
+    cursor.execute('''SELECT name FROM categories WHERE id = ?''', (category_id,))
+    category_name = cursor.fetchone()[0]
+    conn.close()
+    return category_name, books
+
+
 
 
