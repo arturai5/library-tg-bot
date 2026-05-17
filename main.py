@@ -1,4 +1,4 @@
-from fastapi import FastAPI
+from fastapi import FastAPI, BackgroundTasks, Request
 import requests
 import sqlite3
 from send_func import *
@@ -18,9 +18,9 @@ user_states = {}
 init_db()
 
 
-@app.post('/webhook')
-def receive_update(data: dict):
-    print(f"📥 ПРИШЕЛ WEBHOOK! Ключи внутри: {list(data.keys())}")  # ДОБАВИТЬ ЭТО
+
+def process_telegram_update(data: dict):
+    print(f"📥 ПРИШЕЛ WEBHOOK! Ключи внутри: {list(data.keys())}")
     if 'callback_query' in data:
         chat_id = data['callback_query']['message']['chat']['id']
         message_id = data['callback_query']['message']['message_id']
@@ -353,6 +353,15 @@ def receive_update(data: dict):
             send_message(chat_id, 'Пожалуйста воспользуйтесь меню ниже, или напишите /start')
     return {'status': 'ok'}
 
+@app.post('/webhook')
+async def receive_update(request: Request, background_tasks: BackgroundTasks):
+    # Мгновенно вытаскиваем данные из запроса Телеграма
+    data = await request.json()
 
+    # Передаем данные нашей функции-"работяге" в фоновый режим
+    background_tasks.add_task(process_telegram_update, data)
+
+    # Моментально отдаем Телеграму код 200 OK
+    return {"ok": True}
 
 
