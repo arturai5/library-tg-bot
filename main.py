@@ -348,7 +348,7 @@ def process_telegram_update(data: dict):
                     send_message(chat_id, f'Книга {book_title} загружается...')
                     send_document(chat_id, file_id)
                 else:
-                    send_message('Книга не найдена!')
+                    send_message(chat_id, 'Книга не найдена!')
         else:
             send_message(chat_id, 'Пожалуйста воспользуйтесь меню ниже, или напишите /start')
     return {'status': 'ok'}
