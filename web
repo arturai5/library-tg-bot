@@ -1,1 +1,0 @@
-https://api.telegram.org/bot<ТВОЙ_ТОКЕН_ОТ_BOTFATHER>/setWebhook?url=<ТВОЙ_НОВЫЙ_NGROK_URL>/webhook
