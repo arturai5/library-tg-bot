@@ -4,7 +4,8 @@ web
 main.test.py
 *.db
 library.db
-
+venv/
+.idea/
 temp_pdf/
 covers/
 
